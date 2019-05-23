@@ -1,0 +1,334 @@
+<html>
+
+<head>
+	<script src = "../d3.js"></script>
+	<style>
+		body {
+			font-family: Helvetica, Arial, sans-serif
+		}
+
+		h1 {
+			background-color: #2a5599;
+			color: white;
+			padding: 5px;
+		}
+
+		.grid line {
+			stroke: lightgrey;
+			stroke-opacity: 0.9;
+			shape-rendering: crispEdges;
+    		transform: translate(10px,-10px);
+		}
+		div.tooltip {	
+			cursor: pointer!important;
+			position: absolute;			
+			text-align: center;			
+			width: 100px;					
+			height: 30px;					
+			padding: 2px;				
+			font: 12px sans-serif;		
+			background: lightsteelblue;	
+			border: 0px;		
+			border-radius: 8px;			
+			pointer-events: none;			
+		}
+
+		svg{
+			border: 1px solid black;
+			width: 1250px;
+		}
+		.pies{
+			border: 1px solid black;
+		}
+		
+	</style>
+</head>
+
+<body>
+	<h1>Aid Data of Countries:Project 3 Viz - 1</h1>
+	<div class="mainView">
+		<div style="max-width:1200px; margin:0 auto">
+			<h2>Aid Data</h2>
+			<h4>Create an overview of the relationships between countries so that it is possible to see who donates to whom and how much. Questions one should be able to answer are: 1) Who are the major donors (in terms of donation amount) and to which countries do they donate the most? And conversely, who are the major receivers and which countries do they receive from the most? Optional: 2) Are there groups of countries that tend to donate/receive to/from a similar set of countries?</h4>
+			<svg id="grid"></svg>
+
+			<div style="max-width:1200px; margin:0 auto; margin-top: 10px; padding: 10px">
+				
+			</div>
+		</div>
+	</div>
+</body>
+
+<script src="http://colorbrewer2.org/export/colorbrewer.js"></script>
+<script>
+	let store = {};
+	let countries = {};
+	let years = {};
+	let max = -Infinity;
+	let min = Infinity;
+	function loadData() {
+		return Promise.all([
+			d3.csv("../aidSmall.csv")
+		]).then(datasets => {
+			store.aidData = datasets[0];
+			return store;
+		});
+	}
+
+	function groupAidData(data) {
+		// console.log(data);
+	//Iterate over each route, producing a dictionary where the keys is are the ailines ids and the values are the information of the airline.
+	let result = data.reduce((result, d) => {
+			let donateData = result[d.donor] || {
+                [d.donor] : {
+                    [d.recipient] : {
+                            donated_amount:0,
+                            recieved_amount:0
+                    }
+                }
+			}
+			let temp = donateData[d.donor][d.recipient] || {
+					donated_amount:0,
+					recieved_amount:0
+			}
+			donateData[d.donor][d.recipient] = temp;
+			donateData[d.donor][d.recipient].donated_amount== 0 || donateData[d.donor][d.recipient].donated_amount? 
+				donateData[d.donor][d.recipient].donated_amount += parseInt(d.commitment_amount_usd_constant) :
+				null;
+			
+			result[d.donor] =  donateData;
+
+			years[d.year] = years[d.year] || true;
+			
+			// result[d.coalesced_purpose_code][d.year] =  donateData[d.coalesced_purpose_code][d.year];
+			return result;
+		}, {})
+        // console.log('before',result);
+		result = Object.keys(result).map(key => {
+			return {
+				from : key,
+                value : result[key][key]
+			}
+		});
+        console.log("after",result);
+		result.forEach(res => {
+			res.value = Object.keys(res.value).map(key => {
+				return {
+                    from: res.from,
+					to : key,
+					// price : res.value[key].donated_amount - res.value[key].recieved_amount,
+					donated_amount : res.value[key].donated_amount,
+					// recieved_amount : res.values[key].recieved_amount
+				}
+			});
+			if(max < d3.max(res.value, d => d.donated_amount)){
+				max = d3.max(res.value, d => d.donated_amount)
+			}
+			// if(min > d3.min(res.values, d => d.donated_amount)){
+			// 	min = d3.min(res.values, d => d.donated_amount)
+			// }
+		});
+		// result = result.sort((a,b) => d3.descending(a.values.length, b.values.length));
+		// result= result.slice(0,20);
+		let tempObj = []
+		result.forEach(res => {
+			res.value.forEach(subRes=> {
+				const obj = {
+					from: subRes.from,
+					to: subRes.to,
+					donated_amount: subRes.donated_amount
+				}
+				tempObj.push(obj);
+                // const obj1 = {
+				// 	from: subRes.to ,
+				// 	to: subRes.from,
+				// 	donated_amount: -subRes.donated_amount
+				// }
+				// tempObj.push(obj1);
+			})
+		});
+		result = tempObj;
+		console.log(tempObj);
+
+
+		years = Object.keys(years);
+		years =  years.sort(function (a, b) {
+			return d3.ascending(a, b);
+		})
+		return result;
+	}
+	function showData() {
+		let config = getAidDataChartConfig();
+		let groupedData = groupAidData(store.aidData);
+		groupCountries(store.aidData);
+		drawGridLayout(config,groupedData);
+	}
+
+	//configs
+
+	function getAidDataChartConfig() {
+		let width = 1100;
+		let height = 1000;
+		let margin = {
+			top: 30,
+			bottom: 50,
+			left: 130,
+			right: 10
+		}
+		let bodyHeight = height - margin.top - margin.bottom;
+		let bodyWidth = width - margin.left - margin.right;
+
+		let container = d3.select('#AidChart');
+		container
+			.attr("width", width)
+			.attr("height",height)
+		//TODO: Set the height of the container
+
+		return { width, height, margin, bodyHeight, bodyWidth, container }
+	}
+	groupCountries = (data) => {
+
+		let result = data.reduce((result, d) => {
+			let donateData = result[d.donor] || {
+				"country": d.donor,
+				"donated_amount": 0,
+				'recieved_amount':  0,
+				"net_amount_donated":  0
+			}
+			donateData.donated_amount += parseInt(d.commitment_amount_usd_constant); 
+			donateData.net_amount_donated += parseInt(d.commitment_amount_usd_constant);
+
+			result[donateData.country] =  donateData ;
+
+			let recievedData = result[d.recipient] || {
+				"country": d.recipient,
+				"donated_amount": 0,
+				'recieved_amount':  0,
+				"net_amount_donated":  0
+			}
+			recievedData.recieved_amount += parseInt(d.commitment_amount_usd_constant); 
+			recievedData.net_amount_donated -= parseInt(d.commitment_amount_usd_constant);
+
+			result[recievedData.country] =  recievedData ;
+			return result;
+		}, {})
+		result = Object.keys(result).map(key => result[key])
+		result =  result.sort(function (a, b) {
+			return d3.descending(a.net_amount_donated, b.net_amount_donated);
+		})
+
+		result.forEach(d => {
+			countries[d.country] = countries[d.country] || true;
+		})
+		countries = Object.keys(countries);
+	}
+	
+	function drawGridLayout(config,aidData) {
+		let format = d3.format(".2s");
+		let { bodyWidth, bodyHeight, margin} = config;
+		var svg = d3.select("#grid")
+				.attr("width", 1000)
+				.attr("height", 1100)
+				.append("g")
+				.attr("transform","translate(" + margin.left + "," + margin.top + ")");
+		svg.append("text")             
+                .attr("transform",
+                        "translate(" + (-90) + " ," + 
+                                    (1100/2) + ")")
+                .style("text-anchor", "middle")
+                .text("Donors");
+		svg.append("text")             
+                .attr("transform",
+                        "translate(" + (1000/2) + " ," + 
+                                    (1100 - 60) + ")")
+                .style("text-anchor", "middle")
+                .text("Recipients");
+		var x = d3.scaleBand()
+			.domain(countries)
+			.range([bodyWidth, 0])
+			.padding(0.01);
+			svg.append("g")
+      		.attr("class", "grid")
+			.attr("transform", "translate(0," + bodyHeight + ")")
+			.call(
+				d3.axisBottom(x)
+				.tickSize(-bodyWidth)
+			)
+            .selectAll("text")	
+            .style("text-anchor", "end")
+            .attr("dx", "-.8em")
+            .attr("dy", ".15em")
+            .attr("transform", "rotate(-65)");
+						
+
+		var y = d3.scaleBand()
+			.domain(countries)
+			.range([bodyHeight, 0])
+			.padding(0.01);
+			svg.append("g")
+      		.attr("class", "grid")
+			.call(d3.axisLeft(y)
+				.tickSize(-bodyHeight-30)
+			);
+		
+		var div = d3.select("body").append("div")	
+			.attr("class", "tooltip")				
+			.style("opacity", 0);    
+		var colorMap = d3.scalePow()
+		.exponent(0.2)
+		.domain([0, max])
+		.range(["white", "green"])
+		.interpolate(d3.interpolateHcl)
+			
+		svg.selectAll()
+			.data(aidData)
+			.enter()
+			.append("rect")
+			.attr("class","grid")
+			.attr("y", function(d) { return y(d.from) })
+			.attr("x", function(d) { return x(d.to) })
+			.attr("width", x.bandwidth() )
+			.attr("height", y.bandwidth() )
+			.style("fill", function(d) { return colorMap(d.donated_amount)} )
+			.on("mouseover", function(d) {		
+				div.transition()		
+					.duration(200)		
+					.style("opacity", .9);		
+				div	.html('donated: '+format(d.donated_amount))	
+					.style("left", (d3.event.pageX) + "px")		
+					.style("top", (d3.event.pageY - 50) + "px");	
+				})					
+			.on("mouseout", function(d) {		
+				div.transition()		
+					.duration(500)		
+					.style("opacity", 0);	
+			})
+
+			let z = d3.scaleSequential(d3.interpolateGreens);
+            z.domain([0, max]);
+            var legend = svg.selectAll(".legend")
+            .data(z.ticks(8).slice(1).reverse())
+            .enter().append("g")
+            .attr("class", "legend")
+            .attr("transform", function(d, i) { return "translate(" + (bodyWidth + 20) + "," + ( i * 20) + ")"; });
+            
+			// legend.append("text")
+            //     .text("Amount in $")
+            //     .attr("x", 26)
+            //     .attr("y", 10);
+            legend.append("rect")
+                .attr("width", 20)
+                .attr("height", 20)
+                .style("fill", z);
+
+            legend.append("text")
+                .attr("x", 26)
+                .attr("y", 10)
+                .attr("dy", ".35em")
+                .text((a) => {return "$"+a});
+
+	}
+
+	loadData().then(showData);
+</script>
+</html>

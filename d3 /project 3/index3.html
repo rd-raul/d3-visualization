@@ -1,0 +1,417 @@
+<html>
+
+<head>
+    <script src = "../d3.js"></script>
+    <style>
+        body {
+            font-family: Helvetica, Arial, sans-serif
+        }
+
+        h1 {
+            background-color: #2a5599;
+            color: white;
+            padding: 5px;
+        }
+        .line {
+            stroke-width: 2;
+            fill: none;
+        }
+
+        .axis path {
+            stroke: black;
+        }
+
+        .links line {
+            stroke: #999;
+            stroke-opacity: 0.6;
+        }
+
+        .nodes circle {
+            stroke: black	;
+            stroke-width: 0px;
+        }
+
+        svg{
+            border: 1px solid black;
+            width: 700px;
+            height: 700px;
+            padding-top: 75px;
+            font-family: Sans-Serif, Arial;
+        }
+
+        .node circle {
+            fill: #DDD;
+            stroke: #777;
+            stroke-width: 2px;
+        }
+
+        .node text {
+            font-family: sans-serif;
+            text-anchor: middle;
+            pointer-events: none;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        .link {
+            stroke: #88A;
+            stroke-width: 2px;  
+        }  
+        
+
+        text {
+            font: 18px sans-serif;
+            pointer-events: none;
+        }
+
+        #end-arrow {
+            fill: #000;
+        }
+        
+    </style>
+</head>
+
+<body>
+    <h1>Aid Data of Countries:Project 3 Viz - 3</h1>
+    <div class="mainView">
+        <div style="max-width:1500px; margin:0 auto">
+            <h2>Aid Data</h2>
+            <h4> Considering only the top 5 purposes of donation, how does the relationship between countries look like in terms of purposes? What purposes do countries donate for to other countries? Are there countries that donate to a given country using multiple purposes. Or do counties always donate using one single purpose when donating to another country?</h4>
+            <svg id="grid1"></svg>
+            <svg id="grid2"></svg>
+            <svg id="grid3"></svg>
+            <svg id="grid4"></svg>
+            <svg id="grid5"></svg>
+
+            <div style="max-width:1200px; margin:0 auto; margin-top: 10px; padding: 10px">
+                <div>
+                    <ul>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+<script>
+    let store = {};
+    let countries = {};
+    let years = {};
+    let max = 0;
+    let color = d3.scaleOrdinal(d3.schemeCategory10);
+    function loadData() {
+        return Promise.all([
+            d3.csv("../aidSmall.csv")
+        ]).then(datasets => {
+            store.aidData = datasets[0];
+            return store;
+        });
+    }
+    function getTop10List(data){
+        let top10Names = {};
+        let top10 = data.reduce((top10, d) => {
+            let recievedData = {
+            }
+            if(top10[d.coalesced_purpose_code]){
+                recievedData[d.coalesced_purpose_code] = top10[d.coalesced_purpose_code] + parseInt(d.commitment_amount_usd_constant);
+            }
+            else{
+                recievedData[d.coalesced_purpose_code] = parseInt(d.commitment_amount_usd_constant);
+            }
+            top10[d.coalesced_purpose_code] = recievedData[d.coalesced_purpose_code];
+            top10Names[d.coalesced_purpose_code] = d.coalesced_purpose_name
+            return top10;
+        }, {})
+        // max = d3.max(Object.keys(top10).map((key)=>top10[key]));
+        top10 = Object.keys(top10).sort((a, b) => {return d3.descending(top10[a], top10[b])});
+        top10 = top10.slice(0,5);
+        top10Names = top10.map(key => top10Names[key]);
+        console.log(top10,top10Names);
+        return {top10, top10Names};
+    }
+
+    function groupAidData(data) {
+        let {top10, top10Names} = getTop10List(data);
+        store.top10 = top10;
+        store.top10Names = top10Names;
+        // console.log(data);
+    //Iterate over each route, producing a dictionary where the keys is are the ailines ids and the values are the information of the airline.
+        let result = data.reduce((result, d) => {
+            let donateData = result[d.coalesced_purpose_code] || {
+                [d.coalesced_purpose_code] : {
+                    [[d.donor]+[d.recipient]] : {
+                        donor : d.donor,
+                        recipient : d.recipient,
+                        amount : 0
+                    }
+                }
+            }
+            // if(donateData[d.coalesced_purpose_code][d.year]) console.log(d);
+            let temp = donateData[d.coalesced_purpose_code][[d.donor]+[d.recipient]] || {
+                        donor : d.donor,
+                        recipient : d.recipient,
+                        amount : 0
+                }
+            donateData[d.coalesced_purpose_code][[d.donor]+[d.recipient]] = temp;
+            donateData[d.coalesced_purpose_code][[d.donor]+[d.recipient]].amount == 0 || donateData[d.coalesced_purpose_code][[d.donor]+[d.recipient]].amount? 
+                donateData[d.coalesced_purpose_code][[d.donor]+[d.recipient]].amount += parseInt(d.commitment_amount_usd_constant) :
+                null;
+            
+            countries[d.donor] = countries[d.donor] || true;
+            countries[d.recipient] = countries[d.recipient] || true;
+            years[d.year] = years[d.year] || true;
+            
+            result[d.coalesced_purpose_code] =  donateData;
+            // result[d.coalesced_purpose_code][d.year] =  donateData[d.coalesced_purpose_code][d.year];
+            return result;
+        }, {})
+
+        // console.log(result);
+        result = top10.map(element => {
+            return {
+                purpose : element,
+                values : result[element][element]
+            }
+        });
+
+        result.forEach(res => {
+            res.values = Object.keys(res.values).map(key => {
+                return {
+                    donor : res.values[key].donor,
+                    recipient : res.values[key].recipient,
+                    price : res.values[key].amount
+                }
+            });
+            // if(max < d3.max(res.values, d => d.price)){
+            //     max = d3.max(res.values, d => d.price)
+            // }
+        });
+        console.log(result);
+		result.forEach((res,i) => {
+            let country = [];
+            let tempObj = [];
+			res.values.forEach(subRes=> {
+				let obj = {
+					type:res.purpose,
+					source:subRes.donor,
+					target:subRes.recipient,
+                    amount: subRes.price
+				}
+                if(!country.includes(subRes.donor)) country.push(subRes.donor);
+                if(!country.includes(subRes.recipient)) country.push(subRes.recipient);
+				tempObj.push(obj);
+			});
+            country = country.sort(function (a, b) {
+                return d3.ascending(a, b);
+            });
+            result[i]['nodes'] = country;
+            result[i].nodes = result[i].nodes.map((c) => {
+                return {'name' : c, id: c}
+            })
+            result[i]['links'] = tempObj
+            // console.log(country);
+		});
+        // result = tempObj;
+        // countries = Object.keys(countries);
+        // countries =  countries.sort(function (a, b) {
+        //     return d3.ascending(a, b);
+        // });
+        // countries = countries.map((c) => {
+        //     return {'name' : c, id: c}
+        // })
+
+
+        years = Object.keys(years);
+        years =  years.sort(function (a, b) {
+            return d3.ascending(a, b);
+        })
+        return result;
+    }
+    function showData() {
+        let config = getAidDataChartConfig();
+        let groupedData = groupAidData(store.aidData);
+        console.log(groupedData);
+        drawGridLayout(config,{nodes: groupedData[0].nodes, links:groupedData[0].links},countries,'#grid1', groupedData[0].purpose,);
+        drawGridLayout(config,{nodes: groupedData[1].nodes, links:groupedData[1].links},countries,'#grid2', groupedData[1].purpose,);
+        drawGridLayout(config,{nodes: groupedData[2].nodes, links:groupedData[2].links},countries,'#grid3', groupedData[2].purpose,);
+        drawGridLayout(config,{nodes: groupedData[3].nodes, links:groupedData[3].links},countries,'#grid4', groupedData[3].purpose,);
+        drawGridLayout(config,{nodes: groupedData[4].nodes, links:groupedData[4].links},countries,'#grid5', groupedData[4].purpose,);
+    }
+    function getAidDataChartConfig() {}
+
+    function drawGridLayout(config,data, countries, svgId, purpose) {
+        let graph = {nodes: data.nodes, links: data.links};
+        const width = 700;
+        const height = 700;
+        let flag = store.top10.indexOf(purpose);
+        const clr = color(flag);
+        const R = 18;
+
+        const svg = d3.select(svgId)
+            .attr('width', width)
+            .attr('height', height);
+
+        svg.append('text')
+        .text(flag+1)
+        .style('transform', 'translate(30px,15px)');
+
+        var dim = 600
+        var circle = svg.append("path")
+            .attr("d", "M 40, "+(dim/2+40)+" a "+dim/2+","+dim/2+" 0 1,0 "+dim+",0 a "+dim/2+","+dim/2+" 0 1,0 "+dim*-1+",0")
+            .style("fill", "#f5f5f5").style('visibility', 'hidden');
+            // evenly spaces nodes along arc
+        var circleCoord = function(node, index, num_nodes){
+            var circumference = circle.node().getTotalLength();
+            var pointAtLength = function(l){return circle.node().getPointAtLength(l)};
+            var sectionLength = (circumference)/num_nodes;
+            var position = sectionLength*index+sectionLength/2;
+            return pointAtLength(circumference-position)
+        }
+        graph.nodes.forEach(function(n, i) {
+            var coord = circleCoord(n, i, graph.nodes.length)
+            n.x = coord.x
+            n.y = coord.y
+        });
+        const simulation = d3.forceSimulation()
+            .nodes(graph.nodes)
+            .force('link', d3.forceLink(graph.links).id(d => d.id))
+            .stop()
+            // simulation.tick();
+            // .force('center', d3.forceCenter(width / 2, height / 2))
+            // .on('tick', ticked)
+
+        simulation.force('link')
+            .distance([300]);
+
+
+        // add defs-marker
+        // add defs-markers
+        svg.append('svg:defs').selectAll('marker')
+            .data([{ id: 'end-arrow', opacity: 1 }, { id: 'end-arrow-fade', opacity: 0.1 }])
+            .enter().append('marker')
+            .attr('id', d => d.id)
+            .attr('viewBox', '0 0 10 10')
+            .attr('refX', 2 + R)
+            .attr('refY', 5)
+            .attr('markerWidth', 10)
+            .attr('markerHeight', 10)
+            .attr('orient', 'auto')
+            .append('svg:path')
+                .attr('d', 'M 2 2 L 11 5 L 2 11 L 6 6 L 2 2')
+                .style('opacity', d => d.opacity);
+
+        let link = svg.selectAll('line')
+            .data(graph.links)
+            .enter().append('line')
+            .attr('x1', d => d.source.x)
+            .attr('y1', d => d.source.y)
+            .attr('x2', d => d.target.x)
+            .attr('y2', d => d.target.y);
+        link  
+            .attr('class', 'link')
+            .attr('marker-end', 'url(#end-arrow)')
+            .on('mouseout', fade(1))
+            .style("stroke", clr);
+
+        let node = svg.selectAll('.node')
+            .data(graph.nodes)
+            .enter().append('g')
+            .attr('class', 'node');
+
+        node.append('circle')
+            .attr('r', R)
+            .on('mouseover', fade(0.1))
+            .on('mouseout', fade(1))
+            .call(d3.drag()
+            .on("start", dragstarted)
+            .on("drag", dragged)
+            .on("end", dragended))
+            .attr('transform', d => `translate(${d.x},${d.y})`);
+
+        node.append('text')
+            .attr('x', 0)
+            .attr('dy', '.35em')
+            .text(d => d.name)
+            .attr('transform', d => `translate(${d.x},${d.y})`);
+            
+        function linkColour(d){
+            let i = store.top10.indexOf(purpose);
+            return color(i);
+        }
+
+        function ticked() {
+            link
+            .attr('x1', d => d.source.x)
+            .attr('y1', d => d.source.y)
+            .attr('x2', d => d.target.x)
+            .attr('y2', d => d.target.y);
+
+            node
+            .attr('transform', d => `translate(${d.x},${d.y})`);
+        }
+
+        function dragstarted(d) {
+            if (!d3.event.active) simulation.alphaTarget(0.3).restart();
+            d.fx = d.x;
+            d.fy = d.y;
+        }
+
+        function dragged(d) {
+            d.fx = d3.event.x;
+            d.fy = d3.event.y;
+        }
+
+        function dragended(d) {
+            if (!d3.event.active) simulation.alphaTarget(0);
+            d.fx = null;
+            d.fy = null;
+        }
+
+        const linkedByIndex = {};
+        graph.links.forEach(d => {
+            linkedByIndex[`${d.source.index},${d.target.index}`] = 1;
+        });
+
+        function isConnected(a, b) {
+            return linkedByIndex[`${a.index},${b.index}`] || linkedByIndex[`${b.index},${a.index}`] || a.index === b.index;
+        }
+
+        function fade(opacity) {
+            return d => {
+            node.style('stroke-opacity', function (o) {
+                const thisOpacity = isConnected(d, o) ? 1 : opacity;
+                this.setAttribute('fill-opacity', thisOpacity);
+                return thisOpacity;
+            });
+
+            link.style('stroke-opacity', o => (o.source === d || o.target === d ? 1 : opacity));
+            link.attr('marker-end', o => (opacity === 1 || o.source === d || o.target === d ? 'url(#end-arrow)' : 'url(#end-arrow-fade)'));
+            };
+        }
+
+
+        var legend = svg.selectAll(".legend")
+                    .data(store.top10Names)
+                    .enter().append("g")
+                    .attr("class", "legend")
+                    .attr("transform", function(d,i) { if(flag == i) return "translate(-425," + (0) + ")"; return '' })
+                    .style("opacity","1");
+
+                legend.append("rect")
+                    .attr("x", 1100 - 18)
+                    .attr("width", 18)
+                    .attr("height", 18)
+                    .style("fill", function(d,i) { if(flag == i) return color(i) });
+
+                legend.append("text")
+                    .attr("x", 1100 - 24)
+                    .attr("y", 9)
+                    .attr("dy", ".35em")
+                    .style("text-anchor", "end")
+                    .text(function(d,i) {if(flag == i) return d; });
+    }
+
+    
+
+    loadData().then(showData);
+</script>
+</html>

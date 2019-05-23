@@ -1,0 +1,246 @@
+<html>
+
+<head>
+    <script src = "d3.js"></script>
+    <style>
+        body {
+            font-family: Helvetica, Arial, sans-serif
+        }
+
+        h1 {
+            background-color: #2a5599;
+            color: white;
+            padding: 5px;
+        }
+
+        svg{
+            border: 1px solid black;
+            width: 1100px;
+        }
+        
+    </style>
+</head>
+
+<body>
+    <h1>Aid Data of Countries: Viz - 1</h1>
+    <div class="mainView">
+        <div style="max-width:1200px; margin:0 auto">
+            <h2>Aid Data comparison between countries</h2>
+            <h4>How do the countries compare in terms of how much they receive and donate from other countries? Are there countries that donate much more than they receive or receive much more than they donate?</h4>
+            <svg id="AidChart"></svg>
+            <div style="max-width:1200px; margin:0 auto; margin-top: 10px; padding: 10px">
+                Things to know about this graph :
+                <div>
+                    <ul>
+                        <li>We are taking into consideration only the top 15 countries that donate</li>
+                        <li>If the number of countries is exceedingly more, this graph wouldn't be as efficient</li>
+                        <li>But, this graph would be very easy to compare between countries</li>
+                        <li>Uses position as marks and colors as channels to distinguish between recieved and donated</li>
+                        <li>I have taken the log of the amount, which is why it looks better to the eye as compared to not taking log</li>
+                        <li>Taking log might tend to confuse the user, which is why I have mentioned on the ticks as to whats the exact value on x - axis</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+<script>
+    let store = {};
+    function loadData() {
+        return Promise.all([
+            d3.csv("../aidSmall.csv"),
+        ]).then(datasets => {
+            store.aidData = datasets[0];
+            console.log(store);
+            return store;
+        });
+    }
+
+
+    function groupByCountry(data) {
+        let result = data.reduce((result, d) => {
+            let donateData = result[d.donor] || {
+                "country": d.donor,
+                "donated_amount": 0,
+                'recieved_amount':  0,
+                "net_amount_donated":  0
+            }
+            donateData.donated_amount += parseInt(d.commitment_amount_usd_constant); 
+            donateData.net_amount_donated += parseInt(d.commitment_amount_usd_constant);
+
+            result[donateData.country] =  donateData ;
+
+            let recievedData = result[d.recipient] || {
+                "country": d.recipient,
+                "donated_amount": 0,
+                'recieved_amount':  0,
+                "net_amount_donated":  0
+            }
+            recievedData.recieved_amount += parseInt(d.commitment_amount_usd_constant); 
+            recievedData.net_amount_donated -= parseInt(d.commitment_amount_usd_constant);
+
+            result[recievedData.country] =  recievedData ;
+            return result;
+        }, {})
+
+        //We use this to convert the dictionary produced by the code above, into a list, that will make it easier to create the visualization. 
+        result = Object.keys(result).map(key => result[key])
+
+        result =  result.sort(function (a, b) {
+            return d3.descending(a.net_amount_donated, b.net_amount_donated);
+        })//TODO: Sort the data in descending order of count.
+
+        // result = result.slice(0,15);
+        result = result.map((data) => {
+            data.donated_amount = Math.log(data.donated_amount == 0 ? 1: data.donated_amount);
+            data.recieved_amount = Math.log(data.recieved_amount == 0 ? 1: data.recieved_amount);
+            return data;
+        })
+        return result;
+    }
+
+    function drawAidDataChart(aidData) {
+        let config = getAidDataChartConfig();
+        let scales = getAidDataChartScales(aidData, config);
+        drawBarsAidDataChart(aidData, scales, config);
+        drawAxesAidDataChart(aidData, scales, config);
+    }
+    function getAidDataChartScales(aidData, config) {
+        let { bodyWidth, bodyHeight } = config;
+        let maximumDonateCount = d3.max(aidData, aid =>  aid.donated_amount);
+        let maxRecievedCount = d3.max(aidData, aid =>  aid.recieved_amount);
+        let maximumCount = maximumDonateCount > maxRecievedCount ? maximumDonateCount: maxRecievedCount;
+
+        let xScale = d3.scaleLinear()
+          .range([0, bodyWidth])
+          .domain([0, maximumCount])
+        
+        let yScale = d3.scaleBand()
+            .range([0, bodyHeight])
+            .domain(aidData.map(a => a.country))
+            .padding(0.2);
+
+        let yScale1 = d3.scaleBand();
+        yScale1.domain(['donated_amount', 'recieved_amount']).range([0, yScale.bandwidth()]);
+
+
+        return { xScale, yScale, yScale1}
+    }
+    function getAidDataChartConfig() {
+        let width = 900;
+        let height = 1200;
+        let margin = {
+            top: 10,
+            bottom: 50,
+            left: 130,
+            right: 10
+        }
+        let bodyHeight = height - margin.top - margin.bottom;
+        let bodyWidth = width - margin.left - margin.right;
+
+        let container = d3.select('#AidChart');
+        container
+            .attr("width", width)
+            .attr("height",height)
+        //TODO: Set the height of the container
+
+        return { width, height, margin, bodyHeight, bodyWidth, container }
+    }
+
+
+    function drawBarsAidDataChart(aidData, scales, config) {
+        let {margin, container, bodyWidth} = config; 
+        let {xScale, yScale, yScale1} = scales;
+
+        let model_name = container.selectAll(".model_name")
+                .data(aidData)
+                .enter().append("g")
+                .attr("class", "model_name")
+                .attr("transform", d => `translate(130,${yScale(d.country) + 10})`);
+        
+                model_name.selectAll(".bar.donated_amount")
+                    .data(d => [d.donated_amount])
+                    .enter()
+                    .append("rect")
+                    .attr("class", "bar donated_amount")
+                    .style("fill","blue")
+                    .attr("x", 0)
+                    .attr("y", d => yScale1('donated_amount'))
+                    .attr("width", d => xScale(d))
+                    .attr("height",yScale1.bandwidth());
+
+                model_name.selectAll(".bar.recieved_amount")
+                    .data(d => [d.recieved_amount])
+                    .enter()
+                    .append("rect")
+                    .attr("class", "bar recieved_amount")
+                    .style("fill","red")
+                    .attr("x", d => 0)
+                    .attr("y", d => yScale1('recieved_amount'))
+                    .attr("width", d => xScale(d))
+                    .attr("height", yScale1.bandwidth());
+
+                let color = [{Donated:'blue'},{Received: 'red'}];
+                      //Legend
+                var legend = container.selectAll(".legend")
+                    .data(['Donated', 'Received'])
+                .enter().append("g")
+                    .attr("class", "legend")
+                    .attr("transform", function(d,i) { return "translate(80," + (i * 20+ 30) + ")"; })
+                    .style("opacity","1");
+
+                legend.append("rect")
+                    .attr("x", 1000 - 18)
+                    .attr("width", 18)
+                    .attr("height", 18)
+                    .style("fill", function(d,i) { return color[i][d]; });
+
+                legend.append("text")
+                    .attr("x", 1000 - 24)
+                    .attr("y", 9)
+                    .attr("dy", ".35em")
+                    .style("text-anchor", "end")
+                    .text(function(d) {return d; });
+    }
+
+    function drawAxesAidDataChart(aidData, scales, config){
+        let {xScale, yScale} = scales
+        let {container, margin, height, width} = config;
+        let axisX = d3.axisBottom(xScale)
+                        .ticks(15)
+                        .tickFormat(function(d) {
+                            return "10^ "+ d;
+                        })
+
+        container.append("g")
+            .style("transform", 
+                `translate(${margin.left}px,${height - margin.bottom}px)`
+            )
+            .call(axisX);
+
+        container.append("text")             
+                .attr("transform",
+                        "translate(" + (width/2) + " ," + 
+                                    (height - 10) + ")")
+                .style("text-anchor", "middle")
+                .text("Amount in $");
+
+        let axisY = d3.axisLeft(yScale)
+        container.append("g")
+            .style("transform", 
+                `translate(${margin.left}px,${margin.top}px)`
+            )
+            .call(axisY)
+        
+    }
+
+    function showData() {
+        //Get the aid data from our store variable
+        let routes = store.aidData;
+        let aid = groupByCountry(store.aidData);
+        console.log(aid);
+        drawAidDataChart(aid);
+    }
+    loadData().then(showData);
+    </script>
+    </html>

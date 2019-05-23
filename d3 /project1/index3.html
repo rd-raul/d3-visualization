@@ -1,0 +1,255 @@
+<html>
+
+<head>
+    <script src = "d3.js"></script>
+    <style>
+        body {
+            font-family: Helvetica, Arial, sans-serif
+        }
+
+        h1 {
+            background-color: #2a5599;
+            color: white;
+            padding: 5px;
+        }
+
+        svg{
+            border: 1px solid black;
+            width: 1100px;
+        }
+        
+        /* .mainView{
+            display: flex;
+        } */
+    </style>
+</head>
+
+<body>
+    <h1>Aid Data of Countries: Viz - 3</h1>
+    <div class="mainView">
+        <div style="max-width:1200px; margin:0 auto">
+            <h2>Aid Data of Countries and how they fair among top 5 purposes</h2>
+            <h4>Are there any major differences in how the top 5 most frequent purposes of disbursements distribute geographically in terms of  countries that receive donations? Are there countries that tend to receive more of certain type of donations than others? </h4>
+            <svg id="map"></svg>
+
+            <div style="max-width:1200px; margin:0 auto; margin-top: 10px; padding: 10px">
+                Things to know about this graph :
+                <div>
+                    <ul>
+                        <li>We are taking into consideration only the top 25 countries that recieve</li>
+                        <li>If the number of countries is exceedingly more,there would be a lot of pie charts overlapping and makes it difficult to read</li>
+                        <li>*This graph doesn't show the exact amount of disbursements</li>
+                        <li>But, this graph would be very easy to compare between countries and also among the top 5 types of disbursements</li>
+                        <li>Uses geo location as marks to represent countries and colors as channels to distinguish between the top 5 types of disbursements</li>
+                        <li>We can make this graph interactive, that is adding on:hover, on-click etc to give more insights about the data shown</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+<script>
+    let store = {};
+    let top5Names = {};
+    function loadData() {
+        return Promise.all([
+            d3.csv("../aidSmall.csv"),
+            d3.json("../contries.geo.json"),
+        ]).then(datasets => {
+            store.geoJSON = datasets[1];
+            store.aidData = datasets[0];
+            return store;
+        });
+    }
+
+    function groupAidData(data) {
+        let top5 = data.reduce((top5, d) => {
+            let recievedData = {
+            }
+            if(top5[d.coalesced_purpose_code]){
+                recievedData[d.coalesced_purpose_code] = top5[d.coalesced_purpose_code] + parseInt(d.commitment_amount_usd_constant);
+            }
+            else{
+                recievedData[d.coalesced_purpose_code] = parseInt(d.commitment_amount_usd_constant);
+            }
+            top5[d.coalesced_purpose_code] = recievedData[d.coalesced_purpose_code];
+            top5Names[d.coalesced_purpose_code] = d.coalesced_purpose_name
+            return top5;
+        }, {})
+        top5 = Object.keys(top5).sort((a, b) => {return d3.descending(top5[a], top5[b])});
+        top5 = top5.slice(0,5);
+        top5Names = top5.map(key => top5Names[key]);
+        console.log(top5Names);
+
+        let result = data.reduce((result, d) => {
+            let recievedData = result[d.recipient] || {
+                "country": d.recipient,
+                'recieved_amount':  0,
+                "purpose":  {
+                    [top5[0]]: 0,
+                    [top5[1]]: 0,
+                    [top5[2]]: 0,
+                    [top5[3]]: 0,
+                    [top5[4]]: 0
+                },
+                "coordinates": []
+            }
+            recievedData.recieved_amount += parseInt(d.commitment_amount_usd_constant); 
+            recievedData.purpose[d.coalesced_purpose_code] == 0 || recievedData.purpose[d.coalesced_purpose_code]? 
+                recievedData.purpose[d.coalesced_purpose_code] += parseInt(d.commitment_amount_usd_constant) :
+                null;
+
+            result[recievedData.country] =  recievedData ;
+            return result;
+        }, {})
+
+        //We use this to convert the dictionary produced by the code above, into a list, that will make it easier to create the visualization. 
+        result = Object.keys(result).map(key => result[key]);
+        
+        result =  result.sort(function (a, b) {
+            return d3.descending(a.recieved_amount, b.recieved_amount);
+        })//TODO: Sort the data in descending order of count.
+
+        // result = result.slice(0,25);
+        console.log(result);
+        return result;
+    }
+    function showData() {
+        let config = getMapConfig(); //get the config
+        let projection = getMapProjection(config) 
+        let geoPath = d3.geoPath()
+                     .projection(projection);
+        let groupedData = groupAidData(store.aidData);
+        const geoData = store.geoJSON.features;
+        for(let i = 0; i < groupedData.length; i++){
+            for(let j= 0; j < geoData.length; j++){
+                if((geoData[j].properties.name == "United States of America" && groupedData[i].country == "United States") ||
+                    (geoData[j].properties.name == "South Korea" && groupedData[i].country == "Korea") ||
+                    groupedData[i].country == geoData[j].properties.name){
+                        groupedData[i].coordinates = geoPath.centroid(geoData[j]);
+                }
+            }
+        }
+        drawMap(store.geoJSON) //Using the data saved on loadData
+		drawAirports(groupedData);
+    }
+    function drawMap(geoJeon) {
+        let config = getMapConfig();
+        let projection = getMapProjection(config)
+        drawBaseMap(config.container, geoJeon.features, projection)
+    }
+    function getMapConfig(){
+        let width = 1000;
+        let height = 700;
+        let container = d3.select('#map');
+        container.attr("width", width)//TODO: select the svg with id Map
+                 .attr("height",height);
+            //TODO: set the width and height of the conatiner to be equal the width and height variables.
+        return {width, height, container}
+    }
+    function getMapProjection(config) {
+        let {width, height} = config;
+        let projection = d3.geoMercator();//TODO: Create a projection of type Mercator.
+        projection.scale(120)
+                    .translate([width / 2, height / 2 + 20])
+                    
+        store.mapProjection = projection;
+        return projection;
+    }
+    function drawBaseMap(container, countries, projection){
+        let path = d3.geoPath()
+                     .projection(projection);//TODO: create a geoPath generator and set its projection to be the projection passed as parameter.
+        
+        container.selectAll("path").data(countries)
+            .enter().append("path")
+            .attr("d", path) //TODO: use the path generator to draw each country 
+            .attr("stroke", "#ccc")
+            .attr("fill", "#eee")
+    }
+	function drawAirports(aidData) {
+        let config = getMapConfig(); //get the config
+        let projection = getMapProjection(config) //get the projection
+        let container = config.container; //get the container
+                
+		var g2 = container.append("g");
+
+		var arc = d3.arc()
+					.innerRadius(0)
+					.outerRadius(12);
+					
+		var pie = d3.pie()
+					.sort(null)
+					.value(function(d) { return d; });
+					
+		// var color = d3.schemeCategory10;
+        let color = [{
+            name: top5Names[0],
+            color: '#FBCE44'
+        },{
+            name: top5Names[1],
+            color: '#CC6455'
+        },{
+            name:  top5Names[2],
+            color: '#24B9DA'
+        },{
+            name:  top5Names[3],
+            color: '#C081BA'
+        },{
+            name:  top5Names[4],
+            color: '#57D688'
+        }]
+
+		var points = g2.selectAll("g")
+			.data(aidData)
+			.enter()
+			.append("g")
+			.attr("transform",function(d) {
+                if (d.coordinates.length == 0) 
+                        return ("translate("+[0,0]+")");
+				 	return "translate("+d.coordinates+")" 
+				 })
+			.attr("id", function (d,i) { return "chart"+i; })
+			.append("g").attr("class","pies");
+		
+		// Add a circle to it if needed
+		points.append("circle")
+			.attr("r", 5)
+			.style("fill", "red");
+		
+		// Select each g element we created, and fill it with pie chart:
+		var pies = points.selectAll(".pies")
+			.data(function(d) { return pie(Object.keys(d.purpose).map(key => d.purpose[key])) }) // I'm unsure why I need the leading 0.
+			.enter()
+			.append('g')
+			.attr('class','arc')
+            .style('border', '1px solid black');
+		
+		pies.append("path")
+		.attr('d',arc)
+		.attr("fill",function(d,i){
+			return color[i].color;      
+		});
+        
+        var legend = container.selectAll(".legend")
+                    .data(top5Names)
+                    .enter().append("g")
+                    .attr("class", "legend")
+                    .attr("transform", function(d,i) { return "translate(-25," + (i * 20+ 30) + ")"; })
+                    .style("opacity","1");
+
+                legend.append("rect")
+                    .attr("x", 1100 - 18)
+                    .attr("width", 18)
+                    .attr("height", 18)
+                    .style("fill", function(d,i) { return color[i].color; });
+
+                legend.append("text")
+                    .attr("x", 1100 - 24)
+                    .attr("y", 9)
+                    .attr("dy", ".35em")
+                    .style("text-anchor", "end")
+                    .text(function(d) {return d; });
+    }
+    loadData().then(showData);
+</script>
+</html>

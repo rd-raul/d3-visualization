@@ -1,0 +1,229 @@
+<html>
+
+<head>
+    <script src = "d3.js"></script>
+    <style>
+        body {
+            font-family: Helvetica, Arial, sans-serif
+        }
+
+        h1 {
+            background-color: #2a5599;
+            color: white;
+            padding: 5px;
+        }
+
+        svg{
+            border: 1px solid black;
+            width: 1100px;
+        }
+        .pies{
+            border: 1px solid black;
+        }
+        
+    </style>
+</head>
+
+<body>
+    <h1>Aid Data of Countries: Viz - 2</h1>
+    <div class="mainView">
+        <div style="max-width:1200px; margin:0 auto">
+            <h2>Aid Data</h2>
+            <h4>Do the countries that receive the most tend to cluster around specific geographical areas of the world? Are there neighboring countries that have radically different patterns in terms of how much they receive vs. how much they donate?</h4>
+            <svg id="map"></svg>
+
+            <div style="max-width:1200px; margin:0 auto; margin-top: 10px; padding: 10px">
+                Things to know about this graph :
+                <div>
+                    <ul>
+                        <li>We are taking into consideration only the top 30 countries that recieve</li>
+                        <li>If the number of countries is exceedingly more,there would be a lot of pie charts overlapping and makes difficult to read</li>
+                        <li>But, this graph would be very easy to compare between countries and also answers the question easily</li>
+                        <li>Uses geo location as marks to represent countries and colors as channels to distinguish between recieved and donated</li>
+                        <li>This graph doesn't show the exact amount of donated and recieved</li>
+                        <li>I wanted to visualize something like this : <a href="https://exploring-data.com/vis/world-aid-transparency/">https://exploring-data.com/vis/world-aid-transparency/</a> which gives an overall view</li>
+                        <li>Adding interactivity could enhance the information about the data available to the user</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+<script>
+    let store = {};
+    function loadData() {
+        return Promise.all([
+            d3.csv("../aidSmall.csv"),
+            d3.json("../contries.geo.json"),
+        ]).then(datasets => {
+            store.geoJSON = datasets[1];
+            store.aidData = datasets[0];
+            return store;
+        });
+    }
+
+    function groupAidData(data) {
+    //Iterate over each route, producing a dictionary where the keys is are the ailines ids and the values are the information of the airline.
+        let result = data.reduce((result, d) => {
+            let donateData = result[d.donor] || {
+                "country": d.donor,
+                "donated_amount": 0,
+                'recieved_amount':  0,
+                "net_amount_donated":  0,
+                "coordinates": []
+            }
+            donateData.donated_amount += parseInt(d.commitment_amount_usd_constant); 
+            donateData.net_amount_donated += parseInt(d.commitment_amount_usd_constant);
+
+            result[donateData.country] =  donateData ;
+
+            let recievedData = result[d.recipient] || {
+                "country": d.recipient,
+                "donated_amount": 0,
+                'recieved_amount':  0,
+                "net_amount_donated":  0,
+                "coordinates": []
+            }
+            recievedData.recieved_amount += parseInt(d.commitment_amount_usd_constant); 
+            recievedData.net_amount_donated -= parseInt(d.commitment_amount_usd_constant);
+
+            result[recievedData.country] =  recievedData ;
+            return result;
+        }, {})
+
+        //We use this to convert the dictionary produced by the code above, into a list, that will make it easier to create the visualization. 
+        result = Object.keys(result).map(key => result[key])
+        
+        result =  result.sort(function (a, b) {
+            return d3.descending(a.recieved_amount, b.recieved_amount);
+        })//TODO: Sort the data in descending order .
+
+        result = result.slice(0,30);
+        return result;
+    }
+    function showData() {
+        let config = getMapConfig(); //get the config
+        let projection = getMapProjection(config) 
+        let geoPath = d3.geoPath()
+                     .projection(projection);
+        let groupedData = groupAidData(store.aidData);
+        const geoData = store.geoJSON.features;
+        for(let i = 0; i < groupedData.length; i++){
+            for(let j= 0; j < geoData.length; j++){
+                if((geoData[j].properties.name == "United States of America" && groupedData[i].country == "United States") ||
+                    (geoData[j].properties.name == "South Korea" && groupedData[i].country == "Korea") ||
+                    groupedData[i].country == geoData[j].properties.name){
+                        groupedData[i].coordinates = geoPath.centroid(geoData[j]);
+                }
+            }
+        }
+        console.log(groupedData);
+        drawMap(store.geoJSON) //Using the data saved on loadData
+		drawAirports(groupedData);
+    }
+    function drawMap(geoJeon) {
+        let config = getMapConfig();
+        let projection = getMapProjection(config)
+        drawBaseMap(config.container, geoJeon.features, projection)
+    }
+    function getMapConfig(){
+        let width = 1000;
+        let height = 700;
+        let container = d3.select('#map');
+        container.attr("width", width)//TODO: select the svg with id Map
+                 .attr("height",height);
+            //TODO: set the width and height of the conatiner to be equal the width and height variables.
+        return {width, height, container}
+    }
+    function getMapProjection(config) {
+        let {width, height} = config;
+        let projection = d3.geoMercator();//TODO: Create a projection of type Mercator.
+        projection.scale(120)
+                    .translate([width / 2, height / 2 + 20])
+                    
+        store.mapProjection = projection;
+        return projection;
+    }
+    function drawBaseMap(container, countries, projection){
+        let path = d3.geoPath()
+                     .projection(projection);//TODO: create a geoPath generator and set its projection to be the projection passed as parameter.
+        
+        container.selectAll("path").data(countries)
+            .enter().append("path")
+            .attr("d", path) //TODO: use the path generator to draw each country 
+            .attr("stroke", "#ccc")
+            .attr("fill", "#eee")
+    }
+	function drawAirports(aidData) {
+        let config = getMapConfig(); //get the config
+        let projection = getMapProjection(config) //get the projection
+        let container = config.container; //get the container
+                
+		var g2 = container.append("g");
+
+		var arc = d3.arc()
+					.innerRadius(0)
+					.outerRadius(7);
+					
+		var pie = d3.pie()
+					.sort(null)
+					.value(function(d) { return d; });
+					
+		// var color = d3.schemeCategory10;
+
+		var points = g2.selectAll("g")
+			.data(aidData)
+			.enter()
+			.append("g")
+			.attr("transform",function(d) {
+                    if (d.coordinates.length == 0) 
+                        return ("translate("+[0,0]+")");
+				 	return "translate("+d.coordinates+")" 
+				 })
+			.attr("id", function (d,i) { return "chart"+i; })
+			.append("g").attr("class","pies");
+		
+		// Add a circle to it if needed
+		points.append("circle")
+			.attr("r", 3)
+			.style("fill", "red");
+		
+		// Select each g element we created, and fill it with pie chart:
+		var pies = points.selectAll(".pies")
+			.data(function(d) { return pie([d.donated_amount,d.recieved_amount]) })
+			.enter()
+			.append('g')
+			.attr('class','arc');
+		
+		pies.append("path")
+		.attr('d',arc)
+		.attr("fill",function(d,i){
+            const color = ['blue','red']
+			return color[i];      
+		});
+
+        let color = [{Donated:'blue'},{Received: 'red'}];
+                      //Legend
+        var legend = container.selectAll(".legend")
+            .data(['Donated', 'Received'])
+            .enter().append("g")
+            .attr("class", "legend")
+            .attr("transform", function(d,i) { return "translate(-25," + (i * 20+ 30) + ")"; })
+            .style("opacity","1");
+
+        legend.append("rect")
+            .attr("x", 1000 - 18)
+            .attr("width", 18)
+            .attr("height", 18)
+            .style("fill", function(d,i) { return color[i][d]; });
+
+        legend.append("text")
+            .attr("x", 1000 - 24)
+            .attr("y", 9)
+            .attr("dy", ".35em")
+            .style("text-anchor", "end")
+            .text(function(d) {return d; });
+    }
+    loadData().then(showData);
+</script>
+</html>

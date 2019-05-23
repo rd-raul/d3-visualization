@@ -1,0 +1,330 @@
+<html>
+
+<head>
+	<script src = "../d3.js"></script>
+	<style>
+		body {
+			font-family: Helvetica, Arial, sans-serif
+		}
+
+		h1 {
+			background-color: #2a5599;
+			color: white;
+			padding: 5px;
+		}
+
+		/* .grid {
+			stroke: black;
+			stroke-width: 1px; 
+			fill: black;
+		} */
+		div.tooltip {	
+			cursor: pointer!important;
+			position: absolute;			
+			text-align: center;			
+			width: 100px;					
+			height: 30px;					
+			padding: 2px;				
+			font: 12px sans-serif;		
+			background: lightsteelblue;	
+			border: 0px;		
+			border-radius: 8px;			
+			pointer-events: none;			
+		}
+
+		svg{
+			border: 1px solid black;
+			width: 1200px;
+		}
+		.pies{
+			border: 1px solid black;
+		}
+		
+	</style>
+</head>
+
+<body>
+	<h1>Aid Data of Countries:Project 2 Viz - 1</h1>
+	<div class="mainView">
+		<div style="max-width:1200px; margin:0 auto">
+			<h2>Aid Data</h2>
+			<h4>Visualization 1: a) How does the amount donated vs. amount received change over time across all countries?; b) Are there countries that mostly send or mostly receive and countries that have a similar amount of donations they receive and send?; c) Are there countries that change their role over time? That is, they used to mostly send donations and turn into mostly receiving donations and vice-versa?; d) Are there countries in which you can find a sudden increase ("peak") or a sudden decrease ("valley")?</h4>
+			<svg id="grid"></svg>
+
+			<div style="max-width:1200px; margin:0 auto; margin-top: 10px; padding: 10px">
+				
+			</div>
+		</div>
+	</div>
+</body>
+
+<script src="http://colorbrewer2.org/export/colorbrewer.js"></script>
+<script>
+	let store = {};
+	let countries = {};
+	let years = {};
+	let max = -Infinity;
+	let min = Infinity;
+	function loadData() {
+		return Promise.all([
+			d3.csv("../aidSmall.csv")
+		]).then(datasets => {
+			store.aidData = datasets[0];
+			return store;
+		});
+	}
+
+	function groupAidData(data) {
+		// console.log(data);
+	//Iterate over each route, producing a dictionary where the keys is are the ailines ids and the values are the information of the airline.
+	let result = data.reduce((result, d) => {
+			let donateData = result[d.donor] || {
+				[d.donor] : {
+					[d.year]:{
+						donated_amount:0,
+						recieved_amount:0
+					}
+				}
+			}
+			let temp = donateData[d.donor][d.year] || {
+					donated_amount:0,
+					recieved_amount:0
+			}
+			donateData[d.donor][d.year] = temp;
+			donateData[d.donor][d.year].donated_amount== 0 || donateData[d.donor][d.year].donated_amount? 
+				donateData[d.donor][d.year].donated_amount += parseInt(d.commitment_amount_usd_constant) :
+				null;
+			
+			result[d.donor] =  donateData;
+
+			let recievedData = result[d.recipient] || {
+				[d.recipient] : {
+					[d.year]:{
+						donated_amount:0,
+						recieved_amount:0
+					}
+				}
+			}
+			let temp1 = recievedData[d.recipient][d.year] || {
+					donated_amount:0,
+					recieved_amount:0
+			}
+			recievedData[d.recipient][d.year] = temp1;
+			recievedData[d.recipient][d.year].recieved_amount== 0 || recievedData[d.recipient][d.year].recieved_amount? 
+				recievedData[d.recipient][d.year].recieved_amount += parseInt(d.commitment_amount_usd_constant) :
+				null;
+
+			result[d.recipient] =  recievedData;
+
+			years[d.year] = years[d.year] || true;
+			
+			// result[d.coalesced_purpose_code][d.year] =  donateData[d.coalesced_purpose_code][d.year];
+			return result;
+		}, {})
+
+		result = Object.keys(result).map(key => {
+			return {
+				name : key,
+				values : result[key][key]
+			}
+		});
+		result.forEach(res => {
+			res.values = Object.keys(res.values).map(key => {
+				return {
+					date : key,
+					price : res.values[key].donated_amount - res.values[key].recieved_amount,
+					donated_amount : res.values[key].donated_amount,
+					recieved_amount : res.values[key].recieved_amount
+				}
+			});
+			if(max < d3.max(res.values, d => d.price)){
+				max = d3.max(res.values, d => d.price)
+			}
+			if(min > d3.min(res.values, d => d.price)){
+				min = d3.min(res.values, d => d.price)
+			}
+		});
+		result = result.sort((a,b) => d3.descending(a.values.length, b.values.length));
+		// result= result.slice(0,20);
+		let tempObj = []
+		result.forEach(res => {
+			res.values.forEach(subRes=> {
+				let obj = {
+					name:res.name,
+					date:subRes.date,
+					price:subRes.price,
+					donated_amount : subRes.donated_amount,
+					recieved_amount : subRes.recieved_amount
+				}
+				tempObj.push(obj);
+			})
+		});
+		result = tempObj;
+		console.log(tempObj);
+
+
+		years = Object.keys(years);
+		years =  years.sort(function (a, b) {
+			return d3.ascending(a, b);
+		})
+		return result;
+	}
+	function showData() {
+		let config = getAidDataChartConfig();
+		let groupedData = groupAidData(store.aidData);
+		groupCountries(store.aidData);
+		drawGridLayout(config,groupedData);
+	}
+
+	//configs
+
+	function getAidDataChartConfig() {
+		let width = 1100;
+		let height = 1000;
+		let margin = {
+			top: 30,
+			bottom: 50,
+			left: 130,
+			right: 10
+		}
+		let bodyHeight = height - margin.top - margin.bottom;
+		let bodyWidth = width - margin.left - margin.right;
+
+		let container = d3.select('#AidChart');
+		container
+			.attr("width", width)
+			.attr("height",height)
+		//TODO: Set the height of the container
+
+		return { width, height, margin, bodyHeight, bodyWidth, container }
+	}
+	groupCountries = (data) => {
+
+		let result = data.reduce((result, d) => {
+			let donateData = result[d.donor] || {
+				"country": d.donor,
+				"donated_amount": 0,
+				'recieved_amount':  0,
+				"net_amount_donated":  0
+			}
+			donateData.donated_amount += parseInt(d.commitment_amount_usd_constant); 
+			donateData.net_amount_donated += parseInt(d.commitment_amount_usd_constant);
+
+			result[donateData.country] =  donateData ;
+
+			let recievedData = result[d.recipient] || {
+				"country": d.recipient,
+				"donated_amount": 0,
+				'recieved_amount':  0,
+				"net_amount_donated":  0
+			}
+			recievedData.recieved_amount += parseInt(d.commitment_amount_usd_constant); 
+			recievedData.net_amount_donated -= parseInt(d.commitment_amount_usd_constant);
+
+			result[recievedData.country] =  recievedData ;
+			return result;
+		}, {})
+		result = Object.keys(result).map(key => result[key])
+		result =  result.sort(function (a, b) {
+			return d3.descending(a.net_amount_donated, b.net_amount_donated);
+		})
+
+		result.forEach(d => {
+			countries[d.country] = countries[d.country] || true;
+		})
+		countries = Object.keys(countries);
+	}
+	
+	function drawGridLayout(config,aidData) {
+		let format = d3.format(".2s");
+		let { bodyWidth, bodyHeight, margin} = config;
+		var svg = d3.select("#grid")
+				.attr("width", 1000)
+				.attr("height", 1000)
+				.append("g")
+				.attr("transform","translate(" + margin.left + "," + margin.top + ")");
+
+		var x = d3.scaleBand()
+			.domain(years)
+			.range([0, bodyWidth])
+			.padding(0.01);
+			svg.append("g")
+			.attr("transform", "translate(0," + bodyHeight + ")")
+			.call(d3.axisBottom(x)
+					.tickFormat(function(d,i) {
+							return i % 4 == 0 ? d: "";
+						}))
+						
+			svg.append("g")
+			.attr("transform", "translate(0," + "-1)")
+			.call(d3.axisTop(x)
+					.tickFormat(function(d,i) {
+							return i % 4 == 0 ? d: "";
+						}))
+
+		var y = d3.scaleBand()
+			.domain(countries)
+			.range([0, bodyHeight])
+			.padding(0.01);
+			svg.append("g")
+			.call(d3.axisLeft(y))
+
+		
+		var div = d3.select("body").append("div")	
+			.attr("class", "tooltip")				
+			.style("opacity", 0);    
+
+		var colorMap = d3.scalePow()
+		.exponent(0.2)
+		.domain([min, 0, max])
+		.range(["red", "white", "green"])
+		.interpolate(d3.interpolateHcl)
+			
+		svg.selectAll()
+			.data(aidData)
+			.enter()
+			.append("rect")
+			.attr("class","grid")
+			.attr("y", function(d) { return y(d.name) })
+			.attr("x", function(d) { return x(d.date) })
+			.attr("width", x.bandwidth() )
+			.attr("height", y.bandwidth() )
+			.style("fill", function(d) { return colorMap(d.price)} )
+			.on("mouseover", function(d) {		
+				div.transition()		
+					.duration(200)		
+					.style("opacity", .9);		
+				div	.html('donated: '+format(d.donated_amount)+ "<br/>"  +'recieved: '+ format(d.recieved_amount))	
+					.style("left", (d3.event.pageX) + "px")		
+					.style("top", (d3.event.pageY - 50) + "px");	
+				})					
+			.on("mouseout", function(d) {		
+				div.transition()		
+					.duration(500)		
+					.style("opacity", 0);	
+			})
+			
+            let z = d3.scaleSequential(d3.interpolateRdYlGn);
+            z.domain([min, max]);
+            var legend = svg.selectAll(".legend")
+            .data(z.ticks(20).slice(1).reverse())
+            .enter().append("g")
+            .attr("class", "legend")
+            .attr("transform", function(d, i) { return "translate(" + (bodyWidth + 40) + "," + ( i * 20) + ")"; });
+            
+            legend.append("rect")
+                .attr("width", 20)
+                .attr("height", 20)
+                .style("fill", z);
+
+            legend.append("text")
+                .attr("x", 26)
+                .attr("y", 10)
+                .attr("dy", ".35em")
+                .text((a) => {return a})
+
+	}
+
+	loadData().then(showData);
+</script>
+</html>

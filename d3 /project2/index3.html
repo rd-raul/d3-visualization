@@ -1,0 +1,303 @@
+<html>
+
+<head>
+    <script src = "d3.js"></script>
+    <style>
+        body {
+            font-family: Helvetica, Arial, sans-serif
+        }
+
+        h1 {
+            background-color: #2a5599;
+            color: white;
+            padding: 5px;
+        }
+        /* .grid {
+			stroke: white;
+        } */
+        div.tooltip {	
+			cursor: pointer!important;
+			position: absolute;			
+			text-align: center;			
+			width: 100px;					
+			height: 30px;					
+			padding: 2px;				
+			font: 12px sans-serif;		
+			background: lightsteelblue;	
+			border: 0px;		
+			border-radius: 8px;			
+			pointer-events: none;			
+		}
+        #legend {
+            padding: 1.5em 0 0 1.5em;
+        }
+        li.key {
+            border-top-width: 15px;
+            border-top-style: solid;
+            font-size: .75em;
+            width: 10%;
+            padding-left: 0;
+            padding-right: 0;
+        }
+        svg{
+            border: 1px solid black;
+            width: 1100px;
+        }
+        .pies{
+            border: 1px solid black;
+        }
+        
+    </style>
+</head>
+
+<body>
+    <h1>Aid Data of Countries:Project 2 Viz - 3</h1>
+    <div class="mainView">
+        <div style="max-width:1200px; margin:0 auto">
+            <h2>Select the country which you want to know about!</h2>
+                <select onchange="report(this.value)">
+                    <option value ="United States">United States</option>
+                    <option value ="Japan">Japan</option>
+                    <option value ="Germany">Germany</option>
+                    <option value ="France">France</option>
+                    <option value ="United Kingdom">United Kingdom</option>
+                </select>
+            </div>
+        <div style="max-width:1200px; margin:0 auto">
+            <h2>Aid Data</h2>
+            <h4> Focusing on a country that has a history of sending donations to many other countries (pick one): a) how does the set of countries it sends donations to change over time?; b) Are there countries that receive higher amounts in specific time periods? 
+            </h4>
+            <svg id="grid"></svg>
+
+            <div style="max-width:1200px; margin:0 auto; margin-top: 10px; padding: 10px">
+                <!-- Things to know about this graph : -->
+                <div>
+                    <ul>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+<script src="http://colorbrewer2.org/export/colorbrewer.js"></script>
+<script>
+    let store = {};
+    let countries = {};
+    let years = {};
+    let max = 0;
+    let selectedCountry = 'United States'
+    function loadData() {
+        return Promise.all([
+            d3.csv("aidSmall.csv")
+        ]).then(datasets => {
+            store.aidData = datasets[0];
+            return store;
+        });
+    }
+    function report(country) {
+        console.log(country);
+        selectedCountry = country;
+        var grid = document.getElementById("grid");
+        countries = {}
+        max = 0;
+        while (grid.hasChildNodes()) {   
+            grid.removeChild(grid.firstChild);
+        }
+        showData();
+    } 
+
+    function getTopDonor(data){
+       return selectedCountry;
+    }
+
+    function groupAidData(data) {
+        let topDonor = getTopDonor(data);
+        // console.log(data);
+    //Iterate over each route, producing a dictionary where the keys is are the ailines ids and the values are the information of the airline.
+        let result = data.reduce((result, d) => {
+            if(d.donor == topDonor){
+                var donateData = result[d.recipient] || {
+                    [d.recipient] : {
+                        [d.year]:0
+                    }
+                }
+                let temp = donateData[d.recipient][d.year] || {
+                    [d.year]:0
+                }
+                donateData[d.recipient][d.year] = temp;
+                donateData[d.recipient][d.year]== 0 || donateData[d.recipient][d.year]? 
+                    donateData[d.recipient][d.year][d.year] += parseInt(d.commitment_amount_usd_constant) :
+                    null;
+                
+                years[d.year] = years[d.year] || true;
+                result[d.recipient] =  donateData;
+            }
+            return result;
+        }, {})
+
+        //We use this to convert the dictionary produced by the code above, into a list, that will make it easier to create the visualization. 
+        result = Object.keys(result).map(key => {
+            return {
+                name : key,
+                values : result[key][key]
+            }
+        });
+
+        result.forEach(element => {
+            element.values = Object.keys(element.values).map(key => {
+                return {
+                    date : key,
+                    price : element.values[key][key]
+                }
+            })
+			if(max < d3.max(element.values, d => d.price)){
+				max = d3.max(element.values, d => d.price)
+			}
+        });
+        result = result.sort(function (a, b) {
+            return d3.descending(a.values.length, b.values.length);
+        });
+        result = result.slice(0,10); // top 10 
+		result.forEach(d => {
+			countries[d.name] = countries[d.name] || true;
+		})
+		countries = Object.keys(countries);
+        console.log(result)
+        let tempObj = []
+		result.forEach(res => {
+			res.values.forEach(subRes=> {
+				let obj = {
+					name:res.name,
+					date:subRes.date,
+					price:subRes.price,
+				}
+				tempObj.push(obj);
+			})
+		});
+		result = tempObj;
+
+        years = Object.keys(years);
+        years =  years.sort(function (a, b) {
+            return d3.ascending(a, b);
+        })
+        years = years.slice(10,25);
+        return result;
+    }
+    function showData() {
+        let config = getAidDataChartConfig();
+        let groupedData = groupAidData(store.aidData);
+        drawGridLayout(config,groupedData,countries);
+    }
+
+    //configs
+
+    function getAidDataChartConfig() {
+        let width = 800;
+        let height = 400;
+        let margin = {
+            top: 10,
+            bottom: 50,
+            left: 130,
+            right: 10
+        }
+        let bodyHeight = height - margin.top - margin.bottom;
+        let bodyWidth = width - margin.left - margin.right;
+
+        let container = d3.select('#AidChart');
+        container
+            .attr("width", width)
+            .attr("height",height)
+        //TODO: Set the height of the container
+
+        return { width, height, margin, bodyHeight, bodyWidth, container }
+    }
+    
+    function drawGridLayout(config,aidData, countries) {
+        
+		let format = d3.format(".2s");
+		let { bodyWidth, bodyHeight, margin} = config;
+		var svg = d3.select("#grid")
+				.attr("width", bodyWidth)
+				.attr("height", 500)
+				.append("g")
+				.attr("transform","translate(" + margin.left + "," + margin.top + ")");
+
+		var x = d3.scaleBand()
+			.domain(years)
+			.range([0, bodyWidth])
+			.padding(0.01);
+			svg.append("g")
+			.attr("transform", "translate(0," + bodyHeight + ")")
+			.call(d3.axisBottom(x)
+					.tickFormat(function(d,i) {
+                            return d;
+						}))
+
+		var y = d3.scaleBand()
+			.domain(countries)
+			.range([0, bodyHeight])
+			.padding(0.01);
+			svg.append("g")
+            .attr("transform", "translate(-1,0)")
+			.call(d3.axisLeft(y))
+
+		
+		var div = d3.select("body").append("div")	
+			.attr("class", "tooltip")				
+			.style("opacity", 0);    
+
+		var colorMap = d3.scalePow()
+		.exponent(0.15)
+		.domain([0, max])
+		.range(['white' ,'green'])
+		.interpolate(d3.interpolateHcl)
+			
+		svg.selectAll()
+			.data(aidData)
+			.enter()
+			.append("rect")
+			.attr("class","grid")
+			.attr("y", function(d) { return y(d.name) })
+			.attr("x", function(d) { return x(d.date) })
+			.attr("width", x.bandwidth() )
+			.attr("height", y.bandwidth() )
+			.style("fill", function(d) { return colorMap(d.price)} )
+			.on("mouseover", function(d) {		
+				div.transition()		
+					.duration(200)		
+					.style("opacity", .9);		
+				div	.html('donated: '+format(d.price))	
+					.style("left", (d3.event.pageX) + "px")		
+					.style("top", (d3.event.pageY - 50) + "px");	
+				})					
+			.on("mouseout", function(d) {		
+				div.transition()		
+					.duration(500)		
+					.style("opacity", 0);	
+			})
+            console.log(max);
+            let z = d3.scaleSequential(d3.interpolateGreens);
+            z.domain([0, max]);
+            var legend = svg.selectAll(".legend")
+            .data(z.ticks(6).slice(1).reverse())
+            .enter().append("g")
+            .attr("class", "legend")
+            .attr("transform", function(d, i) { return "translate(" + (bodyWidth + 40) + "," + ( i * 20) + ")"; });
+            
+            legend.append("rect")
+                .attr("width", 20)
+                .attr("height", 20)
+                .style("fill", z);
+
+            legend.append("text")
+                .attr("x", 26)
+                .attr("y", 10)
+                .attr("dy", ".35em")
+                .text((a) => {return a});
+        }
+
+    
+
+    loadData().then(showData);
+</script>
+</html>
